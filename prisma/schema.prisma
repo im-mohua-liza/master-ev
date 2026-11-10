@@ -1,0 +1,426 @@
+// Master.EV — EV Showroom Management System
+// Prisma schema. Money fields are stored as Float (rupees) and rounded to
+// 2 decimals consistently in application code (see src/lib/money.ts).
+// NOTE: datasource is SQLite for local development. To go to production,
+// switch `provider` to "postgresql", set DATABASE_URL to a Postgres
+// connection string, and run `prisma migrate deploy`. See DEPLOYMENT.md.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Users & Access
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  phone        String?
+  passwordHash String
+  role         String // OWNER | MANAGER | SALES | ACCOUNTANT
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sales               Sale[]          @relation("SalespersonSales")
+  leadsAssigned       Lead[]          @relation("AssignedLeads")
+  testRidesConducted  TestRide[]      @relation("ConductedTestRides")
+  paymentsRecorded    Payment[]       @relation("RecordedPayments")
+  expensesRecorded    Expense[]       @relation("RecordedExpenses")
+  serviceRecords      ServiceRecord[] @relation("Technician")
+  auditLogs           AuditLog[]
+
+  @@index([role])
+}
+
+// ---------------------------------------------------------------------------
+// Business configuration
+// ---------------------------------------------------------------------------
+
+model BusinessProfile {
+  id                 String   @id @default(cuid())
+  businessName       String   @default("Master.EV")
+  ownerName          String?
+  address            String?
+  state              String?
+  district           String?
+  pin                String?
+  phone              String?
+  email              String?
+  gstin              String?
+  pan                String?
+  logoUrl            String?
+  bankAccountName    String?
+  bankAccountNumber  String?
+  bankIFSC           String?
+  bankName            String?
+  upiId              String?
+  invoicePrefix      String   @default("MEV")
+  invoiceFormat      String   @default("{PREFIX}/{FY}/{SEQ}")
+  financialYearStart String   @default("04-01") // MM-DD
+  termsAndConditions String?
+  setupCompleted     Boolean  @default(false)
+  demoDataSeeded     Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model InvoiceCounter {
+  id            String @id @default(cuid())
+  financialYear String @unique // e.g. "2026-27"
+  lastNumber    Int    @default(0)
+}
+
+model CodeCounter {
+  id         String @id @default(cuid())
+  entityType String @unique // VEHICLE, CUSTOMER, LEAD, BOOKING, SALE, PAYMENT, EXPENSE, SERVICE
+  lastNumber Int    @default(0)
+}
+
+// ---------------------------------------------------------------------------
+// Suppliers & Catalog
+// ---------------------------------------------------------------------------
+
+model Supplier {
+  id            String   @id @default(cuid())
+  companyName   String
+  contactPerson String?
+  phone         String?
+  email         String?
+  address       String?
+  gstin         String?
+  bankDetails   String?
+  notes         String?
+  isActive      Boolean  @default(true)
+  isDemo        Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  vehicles Vehicle[]
+}
+
+model VehicleModel {
+  id                   String   @id @default(cuid())
+  brand                String
+  model                String
+  variant              String?
+  batteryType          String?
+  batteryCapacity      String?
+  motorPower           String?
+  range                String?
+  topSpeed             String?
+  exShowroomPrice      Float?
+  gstRate              Float    @default(5)
+  defaultPurchasePrice Float?
+  defaultSellingPrice  Float?
+  isActive             Boolean  @default(true)
+  isDemo               Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  vehicles  Vehicle[]
+  leads     Lead[]
+  testRides TestRide[]
+
+  @@unique([brand, model, variant])
+}
+
+// ---------------------------------------------------------------------------
+// Inventory — every physical scooter is its own record
+// ---------------------------------------------------------------------------
+
+model Vehicle {
+  id                    String    @id @default(cuid())
+  vehicleCode           String    @unique
+  modelId               String
+  model                 VehicleModel @relation(fields: [modelId], references: [id])
+  colour                String?
+  batteryType           String?
+  batteryCapacity       String?
+  motorPower            String?
+  range                 String?
+  topSpeed              String?
+  exShowroomPrice       Float?
+  sellingPrice          Float
+  purchasePrice         Float
+  dealerPrice           Float?
+  gstRate               Float     @default(5)
+  chassisNumber         String    @unique
+  motorNumber           String    @unique
+  batteryNumber         String    @unique
+  manufacturingDate     DateTime?
+  purchaseDate          DateTime?
+  supplierId            String?
+  supplier              Supplier? @relation(fields: [supplierId], references: [id])
+  location              String?
+  status                String    @default("IN_STOCK") // IN_STOCK, RESERVED, SOLD, DELIVERED, SERVICE, DAMAGED, RETURNED
+  warrantyMonths        Int?      @default(12)
+  batteryWarrantyMonths Int?      @default(36)
+  photoUrl              String?
+  notes                 String?
+  isDemo                Boolean   @default(false)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  sales          Sale[]
+  serviceRecords ServiceRecord[]
+  bookings       Booking[]
+
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Customers & CRM
+// ---------------------------------------------------------------------------
+
+model Customer {
+  id           String   @id @default(cuid())
+  customerCode String   @unique
+  name         String
+  phone        String
+  email        String?
+  address      String?
+  city         String?
+  pin          String?
+  gstin        String?
+  pan          String?
+  idReference  String?
+  occupation   String?
+  notes        String?
+  isDemo       Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  leads          Lead[]
+  testRides      TestRide[]
+  bookings       Booking[]
+  sales          Sale[]
+  payments       Payment[]
+  serviceRecords ServiceRecord[]
+
+  @@index([phone])
+}
+
+model Lead {
+  id                String    @id @default(cuid())
+  leadCode          String    @unique
+  name              String
+  phone             String
+  customerId        String?
+  customer          Customer? @relation(fields: [customerId], references: [id])
+  interestedModelId String?
+  interestedModel   VehicleModel? @relation(fields: [interestedModelId], references: [id])
+  budget            Float?
+  source            String? // Walk-in, Phone, Referral, Social Media, Website, Other
+  assignedToId      String?
+  assignedTo        User?     @relation("AssignedLeads", fields: [assignedToId], references: [id])
+  followUpDate      DateTime?
+  status            String    @default("NEW") // NEW, CONTACTED, INTERESTED, TEST_RIDE, NEGOTIATION, BOOKED, SOLD, LOST
+  notes             String?
+  isDemo            Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  testRides TestRide[]
+
+  @@index([status])
+  @@index([followUpDate])
+}
+
+model TestRide {
+  id            String   @id @default(cuid())
+  customerName  String
+  phone         String
+  customerId    String?
+  customer      Customer? @relation(fields: [customerId], references: [id])
+  leadId        String?
+  lead          Lead?    @relation(fields: [leadId], references: [id])
+  modelId       String
+  model         VehicleModel @relation(fields: [modelId], references: [id])
+  vehicleNumber String?
+  scheduledDate DateTime
+  scheduledTime String?
+  salespersonId String?
+  salesperson   User?    @relation("ConductedTestRides", fields: [salespersonId], references: [id])
+  status        String   @default("SCHEDULED") // SCHEDULED, COMPLETED, CANCELLED
+  feedback      String?
+  isDemo        Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([scheduledDate])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Bookings, Sales, Payments
+// ---------------------------------------------------------------------------
+
+model Booking {
+  id                   String    @id @default(cuid())
+  bookingCode          String    @unique
+  customerId           String
+  customer             Customer  @relation(fields: [customerId], references: [id])
+  vehicleId            String?
+  vehicle              Vehicle?  @relation(fields: [vehicleId], references: [id])
+  bookingAmount        Float
+  bookingDate          DateTime  @default(now())
+  expectedDeliveryDate DateTime?
+  salespersonId        String?
+  paymentMethod        String?
+  status               String    @default("BOOKED") // BOOKED, CONFIRMED, CANCELLED, CONVERTED
+  notes                String?
+  saleId               String?   @unique
+  sale                 Sale?     @relation(fields: [saleId], references: [id])
+  isDemo               Boolean   @default(false)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([status])
+}
+
+model Sale {
+  id            String   @id @default(cuid())
+  saleNumber    String   @unique
+  invoiceNumber String?  @unique
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id])
+  vehicleId     String
+  vehicle       Vehicle  @relation(fields: [vehicleId], references: [id])
+  salespersonId String?
+  salesperson   User?    @relation("SalespersonSales", fields: [salespersonId], references: [id])
+  saleDate      DateTime @default(now())
+
+  basePrice     Float
+  discount      Float    @default(0)
+  exchangeValue Float    @default(0)
+  taxableValue  Float
+  gstRate       Float
+  cgst          Float
+  sgst          Float
+  igst          Float    @default(0)
+  totalGst      Float
+  grandTotal    Float
+  amountPaid    Float    @default(0)
+  balanceAmount Float
+
+  paymentStatus String   @default("DUE") // PAID, PARTIAL, DUE
+  status        String   @default("CONFIRMED") // DRAFT, CONFIRMED, CANCELLED
+  notes         String?
+  isDemo        Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  booking  Booking?
+  payments Payment[]
+
+  @@index([saleDate])
+  @@index([status])
+  @@index([paymentStatus])
+}
+
+model Payment {
+  id              String   @id @default(cuid())
+  paymentCode     String   @unique
+  saleId          String?
+  sale            Sale?    @relation(fields: [saleId], references: [id])
+  customerId      String
+  customer        Customer @relation(fields: [customerId], references: [id])
+  amount          Float
+  method          String // CASH, UPI, BANK_TRANSFER, CARD, FINANCE, CHEQUE, OTHER
+  paymentDate     DateTime @default(now())
+  referenceNumber String?
+  notes           String?
+  recordedById    String?
+  recordedBy      User?    @relation("RecordedPayments", fields: [recordedById], references: [id])
+  isDemo          Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  @@index([paymentDate])
+}
+
+// ---------------------------------------------------------------------------
+// Expenses
+// ---------------------------------------------------------------------------
+
+model ExpenseCategory {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  isDefault Boolean   @default(false)
+  expenses  Expense[]
+}
+
+model Expense {
+  id            String          @id @default(cuid())
+  expenseCode   String          @unique
+  date          DateTime        @default(now())
+  categoryId    String
+  category      ExpenseCategory @relation(fields: [categoryId], references: [id])
+  description   String?
+  amount        Float
+  gst           Float           @default(0)
+  paymentMethod String?
+  vendor        String?
+  receiptUrl    String?
+  recordedById  String?
+  recordedBy    User?           @relation("RecordedExpenses", fields: [recordedById], references: [id])
+  isDemo        Boolean         @default(false)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([date])
+}
+
+// ---------------------------------------------------------------------------
+// Service
+// ---------------------------------------------------------------------------
+
+model ServiceRecord {
+  id           String    @id @default(cuid())
+  serviceCode  String    @unique
+  vehicleId    String
+  vehicle      Vehicle   @relation(fields: [vehicleId], references: [id])
+  customerId   String?
+  customer     Customer? @relation(fields: [customerId], references: [id])
+  serviceDate  DateTime  @default(now())
+  odometer     Int?
+  serviceType  String?
+  issue        String?
+  partsUsed    String?
+  labourCharge Float     @default(0)
+  partsCost    Float     @default(0)
+  totalCost    Float     @default(0)
+  technicianId String?
+  technician   User?     @relation("Technician", fields: [technicianId], references: [id])
+  notes        String?
+  isDemo       Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+
+  @@index([serviceDate])
+}
+
+// ---------------------------------------------------------------------------
+// Audit trail
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  userName    String
+  action      String // CREATE, UPDATE, DELETE, CANCEL, LOGIN
+  entityType  String
+  entityId    String?
+  description String
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([entityType])
+}

@@ -1,0 +1,15 @@
+export const DEFAULT_EXPENSE_CATEGORIES = [
+  "Rent",
+  "Electricity",
+  "Salary",
+  "Transport",
+  "Advertising",
+  "Maintenance",
+  "Internet",
+  "Office Supplies",
+  "Tea / Food",
+  "Travel",
+  "Bank Charges",
+  "Insurance",
+  "Other",
+];
